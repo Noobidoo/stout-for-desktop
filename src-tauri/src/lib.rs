@@ -11,6 +11,7 @@ use tauri::{
     Emitter, Manager, WindowEvent,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as AutostartExt};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 const DEFAULT_REMOTE_URL: &str = "https://stoat.chat/app";
 const INIT_SCRIPT: &str = r#"
@@ -47,14 +48,20 @@ const INIT_SCRIPT: &str = r#"
     minimise: () => tauri.core.invoke("minimise_window"),
     maximise: () => tauri.core.invoke("maximise_window"),
     close: () => tauri.core.invoke("close_window"),
-    setBadgeCount: (count) => tauri.core.invoke("set_badge_count", { count })
+    setBadgeCount: (count) => tauri.core.invoke("set_badge_count", { count }),
+    ptt: {
+      onPress: (cb) => tauri.event.listen("ptt-press", cb),
+      onRelease: (cb) => tauri.event.listen("ptt-release", cb),
+    }
   };
 
   window.desktopConfig = {
     get: () => desktopConfig,
     set: (config) => tauri.core.invoke("set_config", { newConfig: config }),
     getAutostart: () => tauri.core.invoke("get_autostart"),
-    setAutostart: (value) => tauri.core.invoke("set_autostart", { state: value })
+    setAutostart: (value) => tauri.core.invoke("set_autostart", { state: value }),
+    registerPttKey: (key) => tauri.core.invoke("register_ptt_key", { key }),
+    unregisterPttKey: () => tauri.core.invoke("unregister_ptt_key"),
   };
 })();
 "#;
@@ -79,6 +86,8 @@ struct DesktopConfig {
     spellchecker: bool,
     hardware_acceleration: bool,
     discord_rpc: bool,
+    #[serde(default)]
+    ptt_key: Option<String>,
     window_state: WindowState,
 }
 
@@ -92,6 +101,7 @@ impl Default for DesktopConfig {
             spellchecker: true,
             hardware_acceleration: true,
             discord_rpc: true,
+            ptt_key: None,
             window_state: WindowState {
                 x: -1,
                 y: -1,
@@ -108,6 +118,7 @@ struct AppState {
     config: Arc<Mutex<DesktopConfig>>,
     config_path: PathBuf,
     quitting: Arc<Mutex<bool>>,
+    ptt_shortcut: Arc<Mutex<Option<String>>>,
 }
 
 impl AppState {
@@ -121,6 +132,7 @@ impl AppState {
             config: Arc::new(Mutex::new(config)),
             config_path: path,
             quitting: Arc::new(Mutex::new(false)),
+            ptt_shortcut: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -197,6 +209,60 @@ fn set_autostart(app: tauri::AppHandle, state: bool) -> Result<bool, String> {
     app.autolaunch().is_enabled().map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn register_ptt_key(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    key: String,
+) -> Result<(), String> {
+    {
+        let mut current = state.ptt_shortcut.lock().map_err(|e| e.to_string())?;
+        if let Some(ref existing) = *current {
+            let _ = app.global_shortcut().unregister(existing.as_str());
+        }
+        *current = None;
+    }
+    let app_clone = app.clone();
+    app.global_shortcut()
+        .on_shortcut(key.as_str(), move |_app, _shortcut, event| {
+            let name = match event.state {
+                ShortcutState::Pressed => "ptt-press",
+                ShortcutState::Released => "ptt-release",
+            };
+            let _ = app_clone.emit(name, ());
+        })
+        .map_err(|e| e.to_string())?;
+    {
+        let mut current = state.ptt_shortcut.lock().map_err(|e| e.to_string())?;
+        *current = Some(key.clone());
+    }
+    {
+        let mut config = state.config.lock().map_err(|e| e.to_string())?;
+        config.ptt_key = Some(key);
+    }
+    state.save()
+}
+
+#[tauri::command]
+fn unregister_ptt_key(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut current = state.ptt_shortcut.lock().map_err(|e| e.to_string())?;
+    if let Some(ref key) = *current {
+        app.global_shortcut()
+            .unregister(key.as_str())
+            .map_err(|e| e.to_string())?;
+    }
+    *current = None;
+    drop(current);
+    {
+        let mut config = state.config.lock().map_err(|e| e.to_string())?;
+        config.ptt_key = None;
+    }
+    state.save()
+}
+
 fn parse_force_server_arg() -> Option<String> {
     let mut iter = std::env::args();
     while let Some(arg) = iter.next() {
@@ -227,6 +293,7 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             Some(vec![]),
         ))
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_config,
             set_config,
@@ -235,7 +302,9 @@ pub fn run() {
             close_window,
             set_badge_count,
             get_autostart,
-            set_autostart
+            set_autostart,
+            register_ptt_key,
+            unregister_ptt_key
         ])
         .setup(|app| {
             let app_config_dir = app
@@ -251,7 +320,31 @@ pub fn run() {
                     .map(|c| c.start_minimised_to_tray)
                     .unwrap_or(false);
 
+            let initial_ptt_key = state.config.lock().ok().and_then(|c| c.ptt_key.clone());
+
             app.manage(state);
+
+            if let Some(key) = initial_ptt_key {
+                let handle = app.handle().clone();
+                let handle_for_closure = handle.clone();
+                if handle
+                    .global_shortcut()
+                    .on_shortcut(key.as_str(), move |_app, _shortcut, event| {
+                        let name = match event.state {
+                            ShortcutState::Pressed => "ptt-press",
+                            ShortcutState::Released => "ptt-release",
+                        };
+                        let _ = handle_for_closure.emit(name, ());
+                    })
+                    .is_ok()
+                {
+                    if let Some(st) = app.try_state::<AppState>() {
+                        if let Ok(mut current) = st.ptt_shortcut.lock() {
+                            *current = Some(key);
+                        }
+                    }
+                }
+            }
 
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.eval(INIT_SCRIPT);
