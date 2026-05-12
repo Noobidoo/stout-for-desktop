@@ -2,3 +2,6 @@
 	path = assets
 	url = https://github.com/stoatchat/assets
 	update = none
+[submodule "stoat-for-web"]
+	path = stoat-for-web
+	url = https://github.com/Noobidoo/stoat-for-web.git

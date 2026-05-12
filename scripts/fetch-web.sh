@@ -42,17 +42,11 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-WEB_DIR="$SCRIPT_DIR/../stoat-for-web"
+REPO_ROOT="$SCRIPT_DIR/.."
+WEB_DIR="$REPO_ROOT/stoat-for-web"
 
-if [ ! -d "$WEB_DIR/.git" ]; then
-    echo "[fetch-web] Cloning stoat-for-web..."
-    git clone --recursive https://github.com/Noobidoo/stoat-for-web.git "$WEB_DIR"
-else
-    echo "[fetch-web] Updating stoat-for-web..."
-    git -C "$WEB_DIR" fetch --prune
-    git -C "$WEB_DIR" reset --hard origin/main
-    git -C "$WEB_DIR" submodule update --init
-fi
+echo "[fetch-web] Updating stoat-for-web submodule..."
+git -C "$REPO_ROOT" submodule update --init --recursive stoat-for-web
 
 cd "$WEB_DIR"
 
