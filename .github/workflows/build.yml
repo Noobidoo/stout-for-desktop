@@ -44,6 +44,9 @@ jobs:
             librsvg2-dev \
             patchelf
 
+      - name: Install desktop dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Fetch & build stoat-for-web
         shell: bash
         run: bash scripts/fetch-web.sh
