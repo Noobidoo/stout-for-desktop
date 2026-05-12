@@ -106,6 +106,7 @@ impl Default for DesktopConfig {
             hardware_acceleration: true,
             discord_rpc: true,
             ptt_key: None,
+            custom_server_url: None,
             window_state: WindowState {
                 x: -1,
                 y: -1,
