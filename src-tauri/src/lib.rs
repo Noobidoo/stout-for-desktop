@@ -62,6 +62,8 @@ const INIT_SCRIPT: &str = r#"
     setAutostart: (value) => tauri.core.invoke("set_autostart", { state: value }),
     registerPttKey: (key) => tauri.core.invoke("register_ptt_key", { key }),
     unregisterPttKey: () => tauri.core.invoke("unregister_ptt_key"),
+    getServerUrl: () => tauri.core.invoke("get_server_url"),
+    setServerUrl: (url) => tauri.core.invoke("set_server_url", { url }),
   };
 })();
 "#;
@@ -88,6 +90,8 @@ struct DesktopConfig {
     discord_rpc: bool,
     #[serde(default)]
     ptt_key: Option<String>,
+    #[serde(default)]
+    custom_server_url: Option<String>,
     window_state: WindowState,
 }
 
@@ -244,6 +248,36 @@ fn register_ptt_key(
 }
 
 #[tauri::command]
+fn get_server_url(state: tauri::State<'_, AppState>) -> Result<Option<String>, String> {
+    state
+        .config
+        .lock()
+        .map(|c| c.custom_server_url.clone())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_server_url(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    url: Option<String>,
+) -> Result<(), String> {
+    {
+        let mut lock = state.config.lock().map_err(|e| e.to_string())?;
+        lock.custom_server_url = url.clone();
+    }
+    state.save()?;
+    if let Some(ref target) = url {
+        if let Some(window) = app.get_webview_window("main") {
+            if let Ok(encoded) = serde_json::to_string(target) {
+                let _ = window.eval(&format!("window.location.replace({encoded});"));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn unregister_ptt_key(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
@@ -304,7 +338,9 @@ pub fn run() {
             get_autostart,
             set_autostart,
             register_ptt_key,
-            unregister_ptt_key
+            unregister_ptt_key,
+            get_server_url,
+            set_server_url
         ])
         .setup(|app| {
             let app_config_dir = app
@@ -321,6 +357,11 @@ pub fn run() {
                     .unwrap_or(false);
 
             let initial_ptt_key = state.config.lock().ok().and_then(|c| c.ptt_key.clone());
+            let initial_server_url = state
+                .config
+                .lock()
+                .ok()
+                .and_then(|c| c.custom_server_url.clone());
 
             app.manage(state);
 
@@ -377,8 +418,9 @@ pub fn run() {
                     let _ = window.hide();
                 }
 
-                if let Some(force_server) = parse_force_server_arg() {
-                    if let Ok(encoded) = serde_json::to_string(&force_server) {
+                let server_url = parse_force_server_arg().or(initial_server_url);
+                if let Some(ref target) = server_url {
+                    if let Ok(encoded) = serde_json::to_string(target) {
                         let _ = window.eval(&format!("window.location.replace({encoded});"));
                     } else {
                         let _ = window.eval(&format!(

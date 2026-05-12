@@ -4,10 +4,9 @@
   "version": "1.3.0",
   "identifier": "chat.stoat.stoat-desktop",
   "build": {
-    "beforeBuildCommand": "",
-    "beforeDevCommand": "",
-    "frontendDist": "https://stoat.chat/app",
-    "devUrl": "https://stoat.chat/app"
+    "beforeBuildCommand": "bash scripts/fetch-web.sh",
+    "beforeDevCommand": "bash scripts/fetch-web.sh",
+    "frontendDist": "../stoat-for-web/packages/client/dist"
   },
   "app": {
     "withGlobalTauri": true,
@@ -15,7 +14,6 @@
       {
         "label": "main",
         "title": "Stoat",
-        "url": "https://stoat.chat/app",
         "minWidth": 300,
         "minHeight": 300,
         "width": 1280,

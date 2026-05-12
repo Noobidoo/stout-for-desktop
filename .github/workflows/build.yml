@@ -9,8 +9,13 @@ on:
 
 jobs:
   build:
-    name: Build App
-    runs-on: ubuntu-latest
+    name: Build App (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
 
     steps:
       - name: Checkout
@@ -25,6 +30,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -33,8 +39,30 @@ jobs:
             librsvg2-dev \
             patchelf
 
-      - name: Install dependencies
-        run: corepack pnpm install
+      - name: Fetch & build stoat-for-web
+        shell: bash
+        run: bash scripts/fetch-web.sh
 
       - name: Build
-        run: corepack pnpm run package
+        run: pnpm run package
+        env:
+          STOAT_WEB_SKIP_FETCH: "1"
+
+      - name: Upload Linux artifacts
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
+            src-tauri/target/release/bundle/appimage/*.AppImage
+
+      - name: Upload Windows artifacts
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe

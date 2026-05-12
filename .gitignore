@@ -57,6 +57,9 @@ typings/
 # Yarn Integrity file
 .yarn-integrity
 
+# stoat-for-web clone (pulled by scripts/fetch-web.sh)
+stoat-for-web/
+
 # dotenv environment variables file
 .env
 .env.test

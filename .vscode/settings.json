@@ -16,5 +16,8 @@
   "[javascript]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
-  "nixEnvSelector.nixFile": "${workspaceFolder}/default.nix"
+  "nixEnvSelector.nixFile": "${workspaceFolder}/default.nix",
+  "chat.tools.terminal.autoApprove": {
+    "command": true
+  }
 }
